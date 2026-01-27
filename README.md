@@ -18,19 +18,29 @@
   - **スイート組み合わせ**: `Sweet` カテゴリ内の全パワー（かがやき、オヤブン等）を結合して抽出
 - **自動保存**: 日時付きのファイル名で保存
 
-## インストール
+## セットアップ方法
 
+### 1. リポジトリのクローン
+```bash
+git clone https://github.com/[YOUR_USERNAME]/donut_aggregate.git
+cd donut_aggregate
+```
+
+### 2. 環境構築
 高速なパッケージマネージャー `uv` を使用した環境構築を推奨します。
 
-1.  `uv` のインストール（未導入の場合）: [公式ドキュメント](https://github.com/astral-sh/uv)
-2.  仮想環境の作成と依存関係のインストール:
+- `uv` の導入: [公式ドキュメント](https://github.com/astral-sh/uv)
 
 ```bash
-# 仮想環境の作成
-uv venv
+# 仮想環境の作成とパッケージのインストール
+uv sync
+```
 
-# 依存関係のインストール
-uv pip install -r requirements.txt
+※ `pip` を使用する場合:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windowsは .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 ## 使い方
