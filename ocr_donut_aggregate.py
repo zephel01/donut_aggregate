@@ -304,10 +304,54 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
             rows.append(("min", int(s.min()), "-"))
             rows.append(("max", int(s.max()), "-"))
 
-    # Dossari Lv distribution (Sour category handles it properly via new logic? 
-    # Yes, "どっさりパワー" is in "sour". But specialized parsing for it might be desired? 
-    # User said "sour: [どっさりパワー...]" so generic aggregation covers it.)
-    
+    # --- ITEM + DOSSARI COMBINATION ---
+    rows.append(("--- ITEM + DOSSARI COMBINATION ---", "", ""))
+    if "tool_power_type" in df.columns and "tool_power_lv" in df.columns and "dossari_lv" in df.columns:
+        combinations = []
+        for _, row in df.iterrows():
+            t_type = row["tool_power_type"]
+            t_lv = row["tool_power_lv"]
+            d_lv = row["dossari_lv"]
+            
+            # Format: "どうぐ{Type}Lv{Lv} + どっさりLv{Lv}"
+            # If missing, use "-"
+            t_part = f"どうぐ:{t_type} Lv.{int(t_lv)}" if pd.notna(t_type) and pd.notna(t_lv) else "(None)"
+            d_part = f"どっさり Lv.{int(d_lv)}" if pd.notna(d_lv) else "(None)"
+            
+            combinations.append(f"{t_part} + {d_part}")
+            
+        vc = pd.Series(combinations).value_counts(sort=False).sort_index()
+        for k, v in vc.items():
+            pct = (v / total_count) * 100
+            rows.append((k, int(v), f"{pct:.1f}%"))
+
+    # --- SWEET POWER COMBINATIONS ---
+    rows.append(("--- SWEET POWER COMBINATIONS ---", "", ""))
+    if "powers" in df.columns:
+        combinations = []
+        for _, row in df.iterrows():
+            powers = row.get("powers", [])
+            if not isinstance(powers, list):
+                combinations.append("(None)")
+                continue
+            
+            # Filter for sweet category
+            sweet_powers = [p for p in powers if p.get("category") == "sweet"]
+            
+            if not sweet_powers:
+                combinations.append("(None)")
+            else:
+                # Sort by name to ensure consistent strings
+                sweet_powers.sort(key=lambda x: x.get("name", ""))
+                # Format: "PowerA Lv.X + PowerB Lv.Y"
+                combo_str = " + ".join([p.get("full_str", "") for p in sweet_powers])
+                combinations.append(combo_str)
+        
+        vc = pd.Series(combinations).value_counts(sort=False).sort_index()
+        for k, v in vc.items():
+            pct = (v / total_count) * 100
+            rows.append((k, int(v), f"{pct:.1f}%"))
+
     return pd.DataFrame(rows, columns=["metric", "value", "probability"])
 
 
