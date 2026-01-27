@@ -34,7 +34,7 @@ from tqdm import tqdm
 # Constants
 # -----------------------------
 POWER_CATEGORIES = {
-    "sweet": ["オヤブンパワー", "でかでかパワー", "ちびちびパワー", "かがやきパワー", "かガやきパワー", "かかやきパワー", "かかもきパワー"], 
+    "sweet": ["オヤブンパワー", "でかでかパワー", "ちびちびパワー", "かがやきパワー"], 
     "spicy": ["こうげきパワー", "とくこうパワー", "すばやさパワー", "わざパワー"],
     "sour": [
         "どっさりパワー", "どうぐパワー", "メガパワー", "とくべつパワー", "きのみパワー", "アメパワー", "コインパワー", "おたからパワー"
@@ -341,8 +341,9 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
             if not sweet_powers:
                 combinations.append("(None)")
             else:
-                # Sort by name to ensure consistent strings
-                sweet_powers.sort(key=lambda x: x.get("name", ""))
+                # 優先度順にソート (かがやきパワーを先頭に)
+                priority = {"かがやきパワー": 0, "オヤブンパワー": 1, "でかでかパワー": 2, "ちびちびパワー": 3}
+                sweet_powers.sort(key=lambda x: (priority.get(x.get("name", ""), 99), x.get("name", ""), x.get("lv", 0)))
                 # Format: "PowerA Lv.X + PowerB Lv.Y"
                 combo_str = " + ".join([p.get("full_str", "") for p in sweet_powers])
                 combinations.append(combo_str)
@@ -494,6 +495,13 @@ def correct_text(text: str) -> str:
         (r"ミツクス", "ミックス"),
         (r"スイト", "スイート"),
         (r"コンフイ", "コンフィ"),
+        (r"エスバー", "エスパー"),
+        (r"フエアリー", "フェアリー"),
+        
+        # パワー名/タイプまわりの誤字
+        (r"[か力][か力がガか力][やきさ][きさ]パワー", "かがやきパワー"), # かガやき, かかやき, かかもき 等
+        (r"ぜんふ", "ぜんぶ"),
+        (r"すぺて", "すべて"),
         
         # ゲーム用語/文脈
         (r"連[過遍]", "遭遇"),
