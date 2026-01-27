@@ -27,38 +27,49 @@ cd donut_aggregate
 ```
 
 ### 2. 環境構築
-高速なパッケージマネージャー `uv` を使用した環境構築を推奨します。
+高速なパッケージマネージャー `uv` を使用します。
 
 - `uv` の導入: [公式ドキュメント](https://github.com/astral-sh/uv)
 
 ```bash
-# 仮想環境の作成とパッケージのインストール
-uv sync
+# 仮想環境の作成
+uv venv
+
+# 仮想環境の有効化
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\activate   # Windows
+
+# パッケージのインストール
+uv pip install -r requirements.txt
 ```
 
-※ `pip` を使用する場合:
+または、`uv sync` で一括構築も可能です。
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windowsは .venv\Scripts\activate
-pip install -r requirements.txt
+uv sync
 ```
 
 ## 使い方
 
+### OCR集計 (ocr_donut_aggregate.py)
 `uv run` を使用してスクリプトを実行します。
 
 ```bash
-uv run ocr_donut_aggregate.py --input <画像ディレクトリ> --output-dir <出力ディレクトリ>
+uv run python ocr_donut_aggregate.py --input <画像ディレクトリ> --output-dir <出力ディレクトリ>
 ```
 
-### 例
-
+#### 実行例
 ```bash
-python ocr_donut_aggregate.py --input ./data --output-dir ./result
+uv run python ocr_donut_aggregate.py --input ./data --output-dir ./result
 ```
 
 - `--input`: 画像ファイルが入っているディレクトリ（必須）
 - `--output-dir`: 結果CSVを保存するディレクトリ（デフォルト: カレントディレクトリ）
+
+### タイムスタンプ修正 (after_timestamp_to_date.py)
+ファイル名のタイムスタンプを元に、ファイルの作成・更新日時を修正します。
+```bash
+uv run python after_timestamp_to_date.py --input <画像ディレクトリ> --output <出力ディレクトリ>
+```
 
 ## 出力ファイル
 
