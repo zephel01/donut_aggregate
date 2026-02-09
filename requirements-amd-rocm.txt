@@ -13,6 +13,6 @@
 #
 # 注意: ROCmはmacOS / Windows では動作しません
 
-# PyTorch ROCm版（7.1 nightly推奨）
+# PyTorch ROCm版（6.3 Stable推奨）
 # 参考: https://pytorch.org/get-started/locally/
-torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm7.1
+torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3

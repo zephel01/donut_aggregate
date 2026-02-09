@@ -71,18 +71,42 @@ class EasyOCREngine(BaseOCREngine):
                 f"必要なライブラリがインストールされていません: {e}"
             )
 
+        # デバッグ情報
+        print(f"[EasyOCR.initialize] use_gpu={self.use_gpu}, languages={self.languages}")
+        print(f"[EasyOCR.initialize] PyTorch version: {torch.__version__}")
+        print(f"[EasyOCR.initialize] HIP version: {torch.version.hip}")
+        print(f"[EasyOCR.initialize] CUDA available: {torch.cuda.is_available()}")
+        print(f"[EasyOCR.initialize] MPS available: {torch.backends.mps.is_available()}")
+
         # デバイスの決定
         device = 'cpu'
         use_mps = False
 
         if self.use_gpu:
             if torch.cuda.is_available():
+                # CUDAまたはROCm（HIP）が利用可能
                 device = 'cuda'
+                # ROCm（HIP）かどうか確認
+                if torch.version.hip is not None:
+                    print(f"  ✓ ROCm (HIP {torch.version.hip}) が利用可能です")
+                else:
+                    print("  ✓ CUDA が利用可能です")
             elif torch.backends.mps.is_available():
                 device = 'mps'
                 use_mps = True
+                print("  ✓ MPS (Apple Silicon) が利用可能です")
             else:
-                print("警告: CUDA/MPS が利用可能ではありません。CPUを使用します。")
+                # デバッグ情報
+                print("  ✗ GPU検出のデバッグ情報:")
+                print(f"    PyTorch version: {torch.__version__}")
+                print(f"    CUDA available: {torch.cuda.is_available()}")
+                print(f"    CUDA version: {torch.version.cuda}")
+                print(f"    HIP version: {torch.version.hip}")
+                print(f"    MPS available: {torch.backends.mps.is_available()}")
+                print("\n警告: CUDA/MPS が利用可能ではありません。CPUを使用します。")
+                print("ヒント: ROCm環境の場合はPyTorchをROCm版でインストールしてください")
+
+        print(f"[EasyOCR.initialize] device={device}, use_mps={use_mps}")
 
         # EasyOCRリーダーを初期化
         # MPSの場合は、まずCPUで初期化してからモデルをMPSに移動
@@ -120,21 +144,25 @@ class EasyOCREngine(BaseOCREngine):
                 print("  CPUフォールバックを使用します")
                 self.device = 'cpu'
         elif device == 'cuda':
-            # CUDAを使用
+            # CUDAまたはROCmを使用
+            print("CUDA/ROCm モードでEasyOCRを初期化します...")
             self._reader = easyocr.Reader(
                 self.languages,
                 gpu=True,
                 verbose=False
             )
             self.device = 'cuda'
+            print(f"  ✓ CUDA/ROCmデバイス初期化完了")
         else:
             # CPUを使用
+            print("CPU モードでEasyOCRを初期化します...")
             self._reader = easyocr.Reader(
                 self.languages,
                 gpu=False,
                 verbose=False
             )
             self.device = 'cpu'
+            print(f"  ✓ CPUデバイス初期化完了")
 
     def readtext(
         self,
