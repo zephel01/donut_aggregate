@@ -202,11 +202,20 @@ class PaddleOCREngine(BaseOCREngine):
         # GPUを使用する場合、PaddlePaddleのデバイスを設定
         if self.use_gpu:
             try:
-                if paddle.is_compiled_with_cuda():
+                # ROCmまたはCUDAを確認
+                if hasattr(paddle, 'is_compiled_with_rocm') and paddle.is_compiled_with_rocm():
+                    # ROCm環境
                     paddle.set_device('gpu:0')
                     self.device = 'gpu'
+                    print("ROCm (AMD GPU) を使用します")
+                elif paddle.is_compiled_with_cuda():
+                    # CUDA環境
+                    paddle.set_device('gpu:0')
+                    self.device = 'gpu'
+                    print("CUDA (NVIDIA GPU) を使用します")
                 else:
-                    print("警告: PaddlePaddleはCUDAでコンパイルされていません。CPUを使用します。")
+                    # GPUが利用不可
+                    print("警告: PaddlePaddleはGPUでコンパイルされていません。CPUを使用します。")
                     self.device = 'cpu'
             except Exception as e:
                 print(f"警告: GPU設定に失敗しました。CPUを使用します: {e}")
