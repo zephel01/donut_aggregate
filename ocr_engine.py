@@ -193,17 +193,31 @@ class PaddleOCREngine(BaseOCREngine):
         """PaddleOCR リーダーを初期化"""
         try:
             from paddleocr import PaddleOCR
-        except ImportError:
+            import paddle
+        except ImportError as e:
             raise ImportError(
-                "PaddleOCR がインストールされていません。"
-                "インストールしてください: uv pip install paddlepaddle paddleocr"
+                f"PaddleOCRまたはPaddlePaddleがインストールされていません: {e}"
             )
+
+        # GPUを使用する場合、PaddlePaddleのデバイスを設定
+        if self.use_gpu:
+            try:
+                if paddle.is_compiled_with_cuda():
+                    paddle.set_device('gpu:0')
+                    self.device = 'gpu'
+                else:
+                    print("警告: PaddlePaddleはCUDAでコンパイルされていません。CPUを使用します。")
+                    self.device = 'cpu'
+            except Exception as e:
+                print(f"警告: GPU設定に失敗しました。CPUを使用します: {e}")
+                self.device = 'cpu'
+        else:
+            self.device = 'cpu'
 
         # use_angle_cls=True で文字角度補正を有効化
         self._reader = PaddleOCR(
             use_angle_cls=True,
             lang='japan',  # 日本語
-            use_gpu=self.use_gpu
         )
 
     def readtext(
