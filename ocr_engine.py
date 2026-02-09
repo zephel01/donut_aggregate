@@ -86,13 +86,13 @@ class EasyOCREngine(BaseOCREngine):
         if self.use_gpu:
             if torch.cuda.is_available():
                 # CUDAまたはROCm（HIP）が利用可能
-                # 注意：ROCm版のPyTorchはEasyOCRと互換性がない場合がある
+                # ROCm版のPyTorchも試してみる（CPUフォールバックを有効化）
                 if torch.version.hip is not None:
-                    # ROCm環境：EasyOCRはROCm公式対応していないためCPUフォールバック
-                    print("  ⚠️  ROCm環境検出：EasyOCRはROCm公式対応していないためCPUを使用します")
-                    print("     ヒント: GPUアクセラレーションが必要な場合は別のOCRライブラリを検討してください")
-                    use_gpu_fallback = True
-                    device = 'cpu'
+                    # ROCm環境：GPUモードを試すが、エラーならCPUにフォールバック
+                    print("  ✓ ROCm環境検出（PyTorch HIP版）")
+                    print("     GPUモードを試します（クラッシュしたらCPUにフォールバックします）")
+                    device = 'cuda'  # まずGPUを試す
+                    # 後でtry-exceptでフォールバック処理
                 else:
                     # NVIDIA CUDA環境
                     device = 'cuda'
@@ -116,17 +116,7 @@ class EasyOCREngine(BaseOCREngine):
 
         # EasyOCRリーダーを初期化
         # MPSの場合は、まずCPUで初期化してからモデルをMPSに移動
-        if use_gpu_fallback or device == 'cpu':
-            # CPUを使用（ROCm環境でのフォールバック）
-            print("CPU モードでEasyOCRを初期化します...")
-            self._reader = easyocr.Reader(
-                self.languages,
-                gpu=False,
-                verbose=False
-            )
-            self.device = 'cpu'
-            print(f"  ✓ CPUデバイス初期化完了")
-        elif use_mps:
+        if use_mps:
             print("MPS (Apple Silicon) モードでEasyOCRを初期化します...")
             self._reader = easyocr.Reader(
                 self.languages,
@@ -161,14 +151,37 @@ class EasyOCREngine(BaseOCREngine):
                 self.device = 'cpu'
         elif device == 'cuda':
             # CUDAまたはROCmを使用
-            print("CUDA/ROCm モードでEasyOCRを初期化します...")
-            self._reader = easyocr.Reader(
-                self.languages,
-                gpu=True,
-                verbose=False
-            )
-            self.device = 'cuda'
-            print(f"  ✓ CUDA/ROCmデバイス初期化完了")
+            # ROCm環境ではGPUモードを試すが、失敗したらCPUにフォールバック
+            if torch.version.hip is not None:
+                print("ROCm (CUDA/ROCm) モードでEasyOCRを初期化します...")
+                try:
+                    self._reader = easyocr.Reader(
+                        self.languages,
+                        gpu=True,
+                        verbose=False
+                    )
+                    self.device = 'cuda'
+                    print("  ✓ ROCm GPUデバイス初期化完了")
+                except Exception as e:
+                    print(f"  ✗ ROCm GPU初期化失敗: {e}")
+                    print("  CPUフォールバックを使用します...")
+                    self._reader = easyocr.Reader(
+                        self.languages,
+                        gpu=False,
+                        verbose=False
+                    )
+                    self.device = 'cpu'
+                    print("  ✓ CPUフォールバック完了")
+            else:
+                # NVIDIA CUDA環境
+                print("CUDA モードでEasyOCRを初期化します...")
+                self._reader = easyocr.Reader(
+                    self.languages,
+                    gpu=True,
+                    verbose=False
+                )
+                self.device = 'cuda'
+                print("  ✓ CUDAデバイス初期化完了")
         else:
             # CPUを使用
             print("CPU モードでEasyOCRを初期化します...")
