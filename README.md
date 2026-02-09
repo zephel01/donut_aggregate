@@ -234,10 +234,20 @@ GPU tensor test: tensor(0.1234, device='cuda:0')
 
 ```bash
 # ROCm版PaddlePaddleのインストール
-pip install paddlepaddle-gpu
+# バージョン2.6.1のROCm版をインストール
+pip install paddlepaddle-gpu==2.6.1 -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # uvを使用する場合
-uv pip install paddlepaddle-gpu
+uv pip install paddlepaddle-gpu==2.6.1 -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# ROCm版が正常にインストールされたか確認
+python -c "
+import paddle
+print(f'PaddlePaddle version: {paddle.__version__}')
+print(f'ROCm available: {hasattr(paddle, \"is_compiled_with_rocm\")}')
+if hasattr(paddle, 'is_compiled_with_rocm'):
+    print(f'ROCm compiled: {paddle.is_compiled_with_rocm()}')
+"
 ```
 
 ---

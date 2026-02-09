@@ -202,23 +202,35 @@ class PaddleOCREngine(BaseOCREngine):
         # GPUを使用する場合、PaddlePaddleのデバイスを設定
         if self.use_gpu:
             try:
+                # PaddlePaddleの情報を確認
+                import paddle
+                print(f"  PaddlePaddle version: {paddle.__version__}")
+                print(f"  CUDA available: {paddle.is_compiled_with_cuda()}")
+                print(f"  ROCm available: {hasattr(paddle, 'is_compiled_with_rocm')}")
+                if hasattr(paddle, 'is_compiled_with_rocm'):
+                    print(f"  is_compiled_with_rocm(): {paddle.is_compiled_with_rocm()}")
+                print(f"  GPU available: {paddle.is_compiled_with_cuda() or (hasattr(paddle, 'is_compiled_with_rocm') and paddle.is_compiled_with_rocm())}")
+                print(f"  GPU device count: {paddle.device_count() if hasattr(paddle, 'device_count') else 'N/A'}")
+
                 # ROCmまたはCUDAを確認
                 if hasattr(paddle, 'is_compiled_with_rocm') and paddle.is_compiled_with_rocm():
                     # ROCm環境
                     paddle.set_device('gpu:0')
                     self.device = 'gpu'
-                    print("ROCm (AMD GPU) を使用します")
+                    print("  ROCm (AMD GPU) を使用します")
                 elif paddle.is_compiled_with_cuda():
                     # CUDA環境
                     paddle.set_device('gpu:0')
                     self.device = 'gpu'
-                    print("CUDA (NVIDIA GPU) を使用します")
+                    print("  CUDA (NVIDIA GPU) を使用します")
                 else:
                     # GPUが利用不可
-                    print("警告: PaddlePaddleはGPUでコンパイルされていません。CPUを使用します。")
+                    print("  警告: PaddlePaddleはGPUでコンパイルされていません。CPUを使用します。")
                     self.device = 'cpu'
             except Exception as e:
-                print(f"警告: GPU設定に失敗しました。CPUを使用します: {e}")
+                print(f"  警告: GPU設定に失敗しました。CPUを使用します: {e}")
+                import traceback
+                traceback.print_exc()
                 self.device = 'cpu'
         else:
             self.device = 'cpu'

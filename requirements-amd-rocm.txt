@@ -2,22 +2,22 @@
 #
 # 事前準備:
 #   1. ROCmのインストール（詳細はREADME.mdの「ROCm環境セットアップ」を参照）
-#   2. PyTorch (ROCm版) のインストール:
-#      pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm5.7
+#   2. PaddlePaddle (ROCm版) のインストール:
+#      pip install paddlepaddle-gpu==2.6.1 -i https://pypi.tuna.tsinghua.edu.cn/simple
+#      または、ROCm版のPaddlePaddleをインストール
 #   3. 環境変数の設定（~/.bashrc に追加）:
 #      export PATH=/opt/rocm/bin:$PATH
 #      export LD_LIBRARY_PATH=/opt/rocm/lib:$LD_LIBRARY_PATH
 #      export HIP_PATH=/opt/rocm
 #      source ~/.bashrc
 #
-# インストール:
-#   pip install paddlepaddle-gpu
-#   uv pip install paddlepaddle-gpu
+# 重要: paddlepaddle はCPU版です。ROCm版をインストールするには
+# 以下のコマンドを実行してください:
+#   pip install paddlepaddle-gpu==2.6.1 -i https://pypi.tuna.tsinghua.edu.cn/simple
 #
 # 対応GPU: AMD AI MAX 395+, Radeon RX 6000/7000, Radeon Pro, Instinctシリーズ
 # 対応OS: Ubuntu 20.04/22.04, CentOS/RHEL 7.9/8.5, Fedora 34+（Linuxのみ）
 #
 # 注意: ROCmはmacOS / Windows では動作しません
 
-paddlepaddle
 paddleocr
