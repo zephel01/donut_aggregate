@@ -11,7 +11,12 @@
 - はらもちエネルギー 4050kcal
 
 使い方:
-  python ocr_donut_aggregate.py --input ./images --out extracted.csv --summary summary.csv
+  python ocr_donut_aggregate.py --input ./images --output-dir ./result
+
+GPUと並列処理オプション:
+  --gpu auto|cuda|mps|rocm|cpu  GPU使用モード (デフォルト: auto)
+  --workers N                     ワーカー数 (デフォルト: 自動)
+  --engine easyocr|rapidocr|paddleocr  OCRエンジン強制指定
 
 要件:
   pip install easyocr opencv-python pandas tqdm
@@ -23,32 +28,36 @@ import argparse
 import re
 import datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple, List, Any
+from typing import Dict, Optional, List, Any
 
 import cv2
-import easyocr
 import pandas as pd
 from tqdm import tqdm
+
+# 新規モジュールのインポート
+from gpu_detector import GPUDetector, GPUType
+from ocr_engine import create_ocr_engine
+from parallel_ocr import ParallelOCREngine, calculate_optimal_workers
 
 # -----------------------------
 # Constants
 # -----------------------------
 POWER_CATEGORIES = {
-    "sweet": ["オヤブンパワー", "でかでかパワー", "ちびちびパワー", "かがやきパワー"], 
+    "sweet": ["オヤブンパワー", "でかでかパワー", "ちびちびパワー", "かがやきパワー"],
     "spicy": ["こうげきパワー", "とくこうパワー", "すばやさパワー", "わざパワー"],
     "sour": [
-        "どっさりパワー", "どうぐパワー", "メガパワー", "とくべつパワー", "きのみパワー", "アメパワー", "コインパワー", "おたからパワー"
+        "どっさりパワー", "どうぐパワー", "メガパワー", "とくべつパワー",
+        "きのみパワー", "アメパワー", "コインパワー", "おたからパワー"
     ],
     "bitter": ["めんえきパワー", "ぼうぎょパワー", "とくぼうパワー"],
     "fresh": ["ほかくパワー", "そうぐうパワー"]
 }
+
 # Flatten for reverse lookup
 POWER_TO_CATEGORY = {}
 for cat, names in POWER_CATEGORIES.items():
     for n in names:
         POWER_TO_CATEGORY[n] = cat
-
-import easyocr
 
 
 # -----------------------------
@@ -68,51 +77,82 @@ def preprocess(img_bgr):
     # 2) グレースケール
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 3) ノイズ軽減・2値化は EasyOCR 内部に任せるため、
-    #    ここではこれ以上加工しない、または単純な正規化に留める
     return gray
 
 
 # -----------------------------
-# テキスト抽出（EasyOCR）
+# テキスト抽出（OCRエンジン使用）
 # -----------------------------
-def ocr_image(reader: easyocr.Reader, image_path: Path) -> str:
+def ocr_image(ocr_engine, image_path: Path) -> str:
+    """OCRエンジンを使用して画像からテキストを抽出"""
     img_bgr = cv2.imread(str(image_path))
     if img_bgr is None:
         raise RuntimeError(f"画像を読み込めません: {image_path}")
 
     proc = preprocess(img_bgr)
 
-    # EasyOCR は numpy array を受け取れる
-    # detail=0 でテキストだけ返す
-    lines: List[str] = reader.readtext(proc, detail=0, paragraph=True)
+    # OCRエンジンを使用してテキスト抽出
+    lines: List[str] = ocr_engine.readtext(proc, detail=0, paragraph=True)
 
     # 連結して1つの全文に
     text = "\n".join(lines)
 
     # OCRの揺れを少し正規化
+    return normalize_ocr_text(text)
+
+
+def normalize_ocr_text(text: str) -> str:
+    """OCRテキストの正規化"""
+    # 1) 記号の統一
     text = text.replace("：", ":").replace("＋", "+").replace("　", " ")
-    
-    # 紛らわしいカタカナ・漢字の正規化
-    # バワー/ハワー/パ7ー/バワ一(漢数字一) -> パワー
+
+    # 2) 紛らわしいカタカナ・漢字の正規化
     text = re.sub(r"[バハパ][ワ7][ー一]", "パワー", text)
-    
-    # どうく -> どうぐ
     text = re.sub(r"[とど][う][くぐ]", "どうぐ", text)
-    
-    # どつさり -> どっさり
     text = text.replace("どつさり", "どっさり")
+    text = text.replace("Lv.", "Lv").replace("Lv", "Lv.")
 
-    text = text.replace("Lv.", "Lv").replace("Lv", "Lv.")  # Lv. に統一
-    
-    # Lv.? -> Lv.2 (経験則)
-    text = text.replace("Lv.?", "Lv.2")
+    # 3) 誤字補正
+    text = correct_text(text)
 
-    # 紛らわしい文字の置換 (o->0, l->1, etc) は文脈依存でしたいが、
-    # ここでは簡易的に Lv. 直後の o を 0 にするなど
-    text = re.sub(r"(Lv\.?\s*)([oO])", r"\1 0", text)
+    return text
 
-    text = re.sub(r"\s+", " ", text)  # 連続空白を縮める
+
+def correct_text(text: str) -> str:
+    """
+    OCR特有の誤字脱字を辞書/ルールベースで修正する。
+    """
+    replacements = [
+        # 英単語/ヘッダーまわり
+        (r"IT[ew]m?", "Item"),
+        (r"Elavor", "Flavor"),
+        (r"kca[lt]?", "kcal"),
+        (r"Domut", "Donut"),
+
+        # カタカナ小文字化など
+        (r"フレツミュ", "フレッシュ"),
+        (r"ミツクス", "ミックス"),
+        (r"スイト", "スイート"),
+        (r"コンフイ", "コンフィ"),
+        (r"エスバー", "エスパー"),
+        (r"フエアリー", "フェアリー"),
+
+        # パワー名/タイプまわりの誤字
+        (r"[か力][か力がガか力][やきさ][きさ]パワー", "かがやきパワー"), # かガやき, かかやき, かかもき 等
+        (r"ぜんふ", "ぜんぶ"),
+        (r"すぺて", "すべて"),
+
+        # ゲーム用語/文脈
+        (r"連[過遍]", "遭遇"),
+        (r"[渡燕]得", "捕獲"), # 仮置き
+
+        # 数字/Lvまわり
+        (r"Lv\.?1o9", "Lv.109"),
+    ]
+
+    for pat, rep in replacements:
+        text = re.sub(pat, rep, text, flags=re.IGNORECASE)
+
     return text
 
 
@@ -153,20 +193,20 @@ def parse_fields(text: str) -> Dict[str, Any]:
 
     # 2. Powers (Generic Extraction)
     extracted_powers = []
-    
+
     # 探索用の一意なパワー名リストを作る
     all_power_names = []
     for cat_list in POWER_CATEGORIES.values():
         all_power_names.extend(cat_list)
     # 長い順にソート（部分一致防止）
     all_power_names.sort(key=len, reverse=True)
-    
+
     # パワー名検索
     for pname in all_power_names:
         safe_pname = re.escape(pname)
         # Regex pattern: PNAME + (optional space/colon + optional TYPE) + space + Lv + .? + INT
         pat = rf"{safe_pname}\s*(?:[:：]?\s*([^\s]+))?\s*Lv\.?\s*([0-9oO]+)"
-        
+
         for m in re.finditer(pat, text):
             # Lv check
             lv_str = m.group(2).translate(str.maketrans("OoLl", "0011"))
@@ -177,7 +217,7 @@ def parse_fields(text: str) -> Dict[str, Any]:
 
             # Type check
             type_val = m.group(1)
-            
+
             clean_type = None
             if type_val:
                 # Type候補が "Lv" や 数字 などのゴミでないか簡易チェック
@@ -187,7 +227,7 @@ def parse_fields(text: str) -> Dict[str, Any]:
                     clean_type = type_val.strip()
 
             category = POWER_TO_CATEGORY.get(pname, "unknown")
-            
+
             extracted_powers.append({
                 "name": pname,
                 "type": clean_type,
@@ -201,7 +241,7 @@ def parse_fields(text: str) -> Dict[str, Any]:
     # どっさりパワーはTypeがないはずだが、一応
     dossari_info = next((p for p in extracted_powers if p["name"] == "どっさりパワー"), None)
     hoka_info = next((p for p in extracted_powers if p["name"] == "ほかくパワー"), None)
-    
+
     # 3. Plus Level & Energy
     plus_lv = _find_int([r"\+Lv\.?\s*([0-9oO]+)", r"プラスレベル\s*\+?Lv\.?\s*([0-9oO]+)"], text)
     energy_kcal = _find_int([r"([0-9]{3,5})\s*kca", r"ハラモチエネルギー\s*([0-9]{3,5})"], text.lower())
@@ -243,44 +283,36 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
 
     if total_count == 0:
         return pd.DataFrame(rows, columns=["metric", "value", "probability"])
-    
+
     # カテゴリ順に集計
     target_cats = ["sweet", "spicy", "sour", "bitter", "fresh"]
-    
+
     for cat in target_cats:
         rows.append((f"--- {cat.upper()} ---", "", ""))
-        
+
         items = []
         for _, row in df.iterrows():
             powers = row.get("powers", [])
             if not isinstance(powers, list):
-                # 従来の列からも拾う？いや、parse_fieldsを変えたのでpowersはあるはず
                 continue
-            
+
             # この行でこのカテゴリに該当するものを探す
             found_strs = []
             for p in powers:
                 if p["category"] == cat:
                     found_strs.append(p["full_str"])
-            
+
             if found_strs:
                 items.extend(found_strs)
             else:
-                # カテゴリに該当なしの場合、「なし」としてカウントするか？
-                # 確率は「全試行回数に対する出現率」が基本。
-                # 「Spicyパワーが出た中での割合」ではないはず。
-                # なので、単に出現したものをリストアップして、分母を total_count にすればよい。
-                # ただし「何も出なかった」確率は重要かもしれないが、
-                # ここでは「出たパワーの統計」を並べる。
                 pass
-        
+
         # 集計
         if items:
             # 頻度順(value_counts default)ではなく、名前順(sort_index)にする
-            # これにより「名前 Lv.1」「名前 Lv.2」などが並ぶようになる
             vc = pd.Series(items).value_counts(sort=False)
             vc = vc.sort_index()
-            
+
             for k, v in vc.items():
                 pct = (v / total_count) * 100
                 rows.append((k, int(v), f"{pct:.1f}%"))
@@ -312,14 +344,14 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
             t_type = row["tool_power_type"]
             t_lv = row["tool_power_lv"]
             d_lv = row["dossari_lv"]
-            
+
             # Format: "どうぐ{Type}Lv{Lv} + どっさりLv{Lv}"
             # If missing, use "-"
             t_part = f"どうぐ:{t_type} Lv.{int(t_lv)}" if pd.notna(t_type) and pd.notna(t_lv) else "(None)"
             d_part = f"どっさり Lv.{int(d_lv)}" if pd.notna(d_lv) else "(None)"
-            
+
             combinations.append(f"{t_part} + {d_part}")
-            
+
         vc = pd.Series(combinations).value_counts(sort=False).sort_index()
         for k, v in vc.items():
             pct = (v / total_count) * 100
@@ -334,10 +366,10 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
             if not isinstance(powers, list):
                 combinations.append("(None)")
                 continue
-            
+
             # Filter for sweet category
             sweet_powers = [p for p in powers if p.get("category") == "sweet"]
-            
+
             if not sweet_powers:
                 combinations.append("(None)")
             else:
@@ -347,7 +379,7 @@ def make_summary(df: pd.DataFrame) -> pd.DataFrame:
                 # Format: "PowerA Lv.X + PowerB Lv.Y"
                 combo_str = " + ".join([p.get("full_str", "") for p in sweet_powers])
                 combinations.append(combo_str)
-        
+
         vc = pd.Series(combinations).value_counts(sort=False).sort_index()
         for k, v in vc.items():
             pct = (v / total_count) * 100
@@ -367,17 +399,45 @@ def iter_images(input_path: Path) -> List[Path]:
 
 
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(
+        description="ドーナツ画像のOCR集計ツール（GPU・並列処理対応）"
+    )
     ap.add_argument("--input", required=True, help="Input directory or image file")
-    
-    # Date-time default filenames
+
+    # GPU関連オプション
+    ap.add_argument(
+        "--gpu",
+        choices=["auto", "cuda", "mps", "rocm", "cpu"],
+        default="auto",
+        help="GPU使用モード (デフォルト: auto)"
+    )
+    ap.add_argument(
+        "--engine",
+        choices=["easyocr", "rapidocr", "paddleocr"],
+        default=None,
+        help="OCRエンジンを強制指定"
+    )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="ワーカー数（デフォルト: 自動）"
+    )
+    ap.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="ベンチマークモード（最初の10枚で最適設定を探す）"
+    )
+
+    # 出力オプション
     now_str = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     default_out = f"extracted_{now_str}.csv"
     default_summary = f"summary_{now_str}.csv"
-    
+
     ap.add_argument("--out", default=default_out, help=f"Output CSV filename (default: {default_out})")
     ap.add_argument("--summary", default=default_summary, help=f"Summary CSV filename (default: {default_summary})")
     ap.add_argument("--output-dir", default=".", help="Output directory path")
+
     args = ap.parse_args()
 
     input_path = Path(args.input)
@@ -388,7 +448,7 @@ def main():
     # 出力ディレクトリの準備
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 出力パスの構築
     out_csv_path = output_dir / args.out
     summary_csv_path = output_dir / args.summary
@@ -396,48 +456,107 @@ def main():
     image_paths = iter_images(input_path)
     print(f"Found {len(image_paths)} images in {input_path}")
 
-    # 日本語対応のReader
-    reader = easyocr.Reader(['ja', 'en'], gpu=False)  # GPUあればTrueで
+    if not image_paths:
+        print("No images found.")
+        return
 
-    results = []
-    for p in tqdm(image_paths):
-        try:
-            raw_text = ocr_image(reader, p)
-            corrected_text = correct_text(raw_text)
-            
-            # 修正後のテキストからパースする
-            data = parse_fields(corrected_text)
-            
-            data["filename"] = p.name
-            data["raw_text"] = raw_text
-            data["corrected_text"] = corrected_text
-            results.append(data)
-        except Exception as e:
-            print(f"Error processing {p.name}: {e}")
+    # GPU検出
+    gpu_type, gpu_info = GPUDetector.detect()
+    print(f"Detected GPU: {gpu_type.value} ({gpu_info})")
 
-    if not results:
+    # GPUモードの決定
+    if args.gpu == "auto":
+        use_gpu = gpu_type != GPUType.CPU
+    else:
+        use_gpu = args.gpu != "cpu"
+        # 明示的にGPUタイプを上書き
+        if args.gpu == "cuda":
+            gpu_type = GPUType.NVIDIA_CUDA
+        elif args.gpu == "mps":
+            gpu_type = GPUType.APPLE_MPS
+        elif args.gpu == "rocm":
+            gpu_type = GPUType.AMD_ROCM
+        elif args.gpu == "cpu":
+            gpu_type = GPUType.CPU
+
+    # OCRエンジンの作成
+    ocr_engine = create_ocr_engine(
+        gpu_type=gpu_type,
+        force_engine=args.engine,
+        use_gpu=use_gpu
+    )
+    print(f"OCR Engine: {ocr_engine.__class__.__name__}")
+    print(f"Use GPU: {use_gpu}")
+
+    # 並列OCRエンジンの作成
+    num_workers = calculate_optimal_workers(
+        use_gpu=use_gpu,
+        total_images=len(image_paths)
+    )
+    if args.workers:
+        num_workers = args.workers
+
+    print(f"Workers: {num_workers}")
+    print()
+
+    # ベンチマークモード
+    if args.benchmark:
+        from parallel_ocr import benchmark_processing
+        print("=== ベンチマークモード ===")
+        benchmark_processing(ocr_engine, image_paths)
+        return
+
+    # 並列OCR処理
+    parallel_engine = ParallelOCREngine(
+        ocr_engine=ocr_engine,
+        num_workers=num_workers,
+        use_threading=use_gpu  # GPU使用時はスレッドプール推奨
+    )
+
+    print("=== OCR処理開始 ===")
+    results = parallel_engine.process_images(image_paths)
+
+    # 結果をパース
+    parsed_results = []
+    errors = 0
+    for img_path, text in results:
+        if text.startswith("ERROR:"):
+            errors += 1
+            # エラーでも空のデータを作成
+            data = parse_fields("")
+            data["filename"] = img_path.name
+            data["raw_text"] = text
+        else:
+            data = parse_fields(text)
+            data["filename"] = img_path.name
+            data["raw_text"] = text
+
+        parsed_results.append(data)
+
+    if errors > 0:
+        print(f"\n⚠️  {errors}件の処理エラーがありました")
+
+    if not parsed_results:
         print("No data extracted.")
         return
 
-    df = pd.DataFrame(results)
-    
+    df = pd.DataFrame(parsed_results)
+
     # CSV出力用に powers (list) を文字列化するカラムを作っておくと便利
-    # "sweet: [Power...], spicy: [Power...]" みたいな
-    
     def format_powers(powers_list):
         if not isinstance(powers_list, list): return ""
         # cat: full_str list
         cat_map = {c: [] for c in POWER_CATEGORIES.keys()}
         # unknown
         cat_map["unknown"] = []
-        
+
         for p in powers_list:
             c = p.get("category", "unknown")
             if c in cat_map:
                 cat_map[c].append(p.get("full_str", ""))
             else:
                 cat_map["unknown"].append(p.get("full_str", ""))
-        
+
         # 文字列化: "sweet=[...], spicy=[...]"
         parts = []
         for c, plist in cat_map.items():
@@ -450,71 +569,31 @@ def main():
 
     # カラム順序を整頓
     cols = [
-        "filename", "donut_name", "star_rank", 
+        "filename", "donut_name", "star_rank",
         "plus_lv", "energy_kcal",
         "powers_summary", # 新カラム
         "tool_power_type", "tool_power_lv", # 旧互換
-        "dossari_lv", 
-        "capture_type", "capture_lv", 
-        "corrected_text", "raw_text"
+        "dossari_lv",
+        "capture_type", "capture_lv",
+        "raw_text"
     ]
     # 実際にあるカラムだけ残す
     final_cols = [c for c in cols if c in df.columns]
-    
-    # to_csv前に object(list) があると困ることはないが、見にくいので drop powers するか
-    # ここでは final_cols に powers を入れてないので落ちるはず (意図通り)
+
     df_out = df[final_cols]
 
-    print(f"Save extraction result to {out_csv_path}")
+    print(f"\nSave extraction result to {out_csv_path}")
     df_out.to_csv(out_csv_path, index=False, encoding="utf-8-sig")
 
     # 集計 (元の df を使う。powers listが必要なので)
     df_summary = make_summary(df)
     print(f"Save summary to {summary_csv_path}")
     df_summary.to_csv(summary_csv_path, index=False, encoding="utf-8-sig")
-    
+
     # 簡易表示
     print("-" * 40)
     print(df_summary.to_string(index=False))
     print("-" * 40)
-
-
-def correct_text(text: str) -> str:
-    """
-    OCR特有の誤字脱字を辞書/ルールベースで修正する。
-    """
-    replacements = [
-        # 英単語/ヘッダーまわり
-        (r"IT[ew]m?", "Item"),
-        (r"Elavor", "Flavor"),
-        (r"kca[lt]?", "kcal"),
-        (r"Domut", "Donut"),
-        
-        # カタカナ小文字化など
-        (r"フレツミュ", "フレッシュ"),
-        (r"ミツクス", "ミックス"),
-        (r"スイト", "スイート"),
-        (r"コンフイ", "コンフィ"),
-        (r"エスバー", "エスパー"),
-        (r"フエアリー", "フェアリー"),
-        
-        # パワー名/タイプまわりの誤字
-        (r"[か力][か力がガか力][やきさ][きさ]パワー", "かがやきパワー"), # かガやき, かかやき, かかもき 等
-        (r"ぜんふ", "ぜんぶ"),
-        (r"すぺて", "すべて"),
-        
-        # ゲーム用語/文脈
-        (r"連[過遍]", "遭遇"),
-        (r"[渡燕]得", "捕獲"), # 仮置き
-        
-        # 数字/Lvまわり
-        (r"\+Lv\.?1o9", "+Lv.109"),
-    ]
-    
-    for pat, rep in replacements:
-        text = re.sub(pat, rep, text, flags=re.IGNORECASE)
-    
-    return text
 
 
 if __name__ == "__main__":

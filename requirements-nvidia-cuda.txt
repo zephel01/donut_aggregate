@@ -1,0 +1,10 @@
+# NVIDIA GPU (CUDA) 用の追加パッケージ
+# 注意: Pythonバージョンに合わせてインデックスURLを変更してください
+# Python 3.10, 3.11:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# Python 3.12:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# EasyOCR は PyTorch に依存しています
+# 上記コマンドで PyTorch をインストール後に、以下を実行:
+# uv pip install -r requirements.txt

@@ -1,0 +1,2 @@
+# Apple Silicon (MPS) 用の追加パッケージ
+rapidocr-onnxruntime
