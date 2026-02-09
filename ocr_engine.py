@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any
+import threading
 import numpy as np
 
 from gpu_detector import GPUType
@@ -22,6 +23,7 @@ class BaseOCREngine(ABC):
         self.languages = languages
         self.use_gpu = use_gpu
         self._reader = None
+        self._lock = threading.Lock()
 
     @abstractmethod
     def initialize(self) -> None:
@@ -52,9 +54,11 @@ class BaseOCREngine(ABC):
 
     @property
     def reader(self) -> Any:
-        """内部のリーダーオブジェクト"""
+        """内部のリーダーオブジェクト（スレッドセーフ）"""
         if self._reader is None:
-            self.initialize()
+            with self._lock:
+                if self._reader is None:
+                    self.initialize()
         return self._reader
 
 

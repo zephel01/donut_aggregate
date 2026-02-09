@@ -487,6 +487,9 @@ def main():
     print(f"OCR Engine: {ocr_engine.__class__.__name__}")
     print(f"Use GPU: {use_gpu}")
 
+    # 並列処理前にOCRエンジンを事前初期化（スレッド間の競合防止）
+    ocr_engine.initialize()
+
     # 並列OCRエンジンの作成
     num_workers = calculate_optimal_workers(
         use_gpu=use_gpu,
