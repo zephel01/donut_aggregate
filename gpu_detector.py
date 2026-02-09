@@ -33,20 +33,20 @@ class GPUDetector:
         Returns:
             Tuple[GPUType, str]: (GPUタイプ, 詳細情報)
         """
-        # 1. NVIDIA GPU (CUDA) の検出
+        # 1. AMD ROCm の検出（優先：ROCm版PyTorchはCUDA APIも使用するため）
+        amd_info = GPUDetector._detect_amd_rocm()
+        if amd_info:
+            return GPUType.AMD_ROCM, amd_info
+
+        # 2. NVIDIA GPU (CUDA) の検出
         nvidia_info = GPUDetector._detect_nvidia()
         if nvidia_info:
             return GPUType.NVIDIA_CUDA, nvidia_info
 
-        # 2. Apple Silicon (MPS) の検出
+        # 3. Apple Silicon (MPS) の検出
         apple_info = GPUDetector._detect_apple_silicon()
         if apple_info:
             return GPUType.APPLE_MPS, apple_info
-
-        # 3. AMD ROCm の検出（Linuxのみ）
-        amd_info = GPUDetector._detect_amd_rocm()
-        if amd_info:
-            return GPUType.AMD_ROCM, amd_info
 
         # 4. CPU フォールバック
         return GPUType.CPU, GPUDetector._get_cpu_info()
@@ -69,8 +69,13 @@ class GPUDetector:
             pass
 
         # PyTorch がインストールされている場合は CUDA も確認
+        # 注意：ROCm版PyTorchはCUDA APIをエミュレートするため除外する
         try:
             import torch
+            # ROCm版かどうか確認（HIPバージョンがあるならROCm）
+            if torch.version.hip is not None:
+                # ROCm版なのでNVIDIA GPUではない
+                return None
             if torch.cuda.is_available():
                 gpu_name = torch.cuda.get_device_name(0)
                 return f"NVIDIA {gpu_name} (CUDA {torch.version.cuda})"

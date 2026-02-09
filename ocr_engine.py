@@ -81,15 +81,21 @@ class EasyOCREngine(BaseOCREngine):
         # デバイスの決定
         device = 'cpu'
         use_mps = False
+        use_gpu_fallback = False  # GPUが検出されたがCPUにフォールバックするフラグ
 
         if self.use_gpu:
             if torch.cuda.is_available():
                 # CUDAまたはROCm（HIP）が利用可能
-                device = 'cuda'
-                # ROCm（HIP）かどうか確認
+                # 注意：ROCm版のPyTorchはEasyOCRと互換性がない場合がある
                 if torch.version.hip is not None:
-                    print(f"  ✓ ROCm (HIP {torch.version.hip}) が利用可能です")
+                    # ROCm環境：EasyOCRはROCm公式対応していないためCPUフォールバック
+                    print("  ⚠️  ROCm環境検出：EasyOCRはROCm公式対応していないためCPUを使用します")
+                    print("     ヒント: GPUアクセラレーションが必要な場合は別のOCRライブラリを検討してください")
+                    use_gpu_fallback = True
+                    device = 'cpu'
                 else:
+                    # NVIDIA CUDA環境
+                    device = 'cuda'
                     print("  ✓ CUDA が利用可能です")
             elif torch.backends.mps.is_available():
                 device = 'mps'
@@ -110,7 +116,17 @@ class EasyOCREngine(BaseOCREngine):
 
         # EasyOCRリーダーを初期化
         # MPSの場合は、まずCPUで初期化してからモデルをMPSに移動
-        if use_mps:
+        if use_gpu_fallback or device == 'cpu':
+            # CPUを使用（ROCm環境でのフォールバック）
+            print("CPU モードでEasyOCRを初期化します...")
+            self._reader = easyocr.Reader(
+                self.languages,
+                gpu=False,
+                verbose=False
+            )
+            self.device = 'cpu'
+            print(f"  ✓ CPUデバイス初期化完了")
+        elif use_mps:
             print("MPS (Apple Silicon) モードでEasyOCRを初期化します...")
             self._reader = easyocr.Reader(
                 self.languages,
