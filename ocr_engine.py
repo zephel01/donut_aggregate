@@ -203,8 +203,7 @@ class PaddleOCREngine(BaseOCREngine):
         self._reader = PaddleOCR(
             use_angle_cls=True,
             lang='japan',  # 日本語
-            use_gpu=self.use_gpu,
-            show_log=False
+            use_gpu=self.use_gpu
         )
 
     def readtext(
@@ -215,17 +214,22 @@ class PaddleOCREngine(BaseOCREngine):
         **kwargs
     ) -> List[str]:
         """PaddleOCR でテキストを読み取る"""
-        result = self.reader.ocr(image, cls=True)[0]
+        # PaddleOCRのocrメソッドは [[座標], (テキスト, 信頼度)] のリストを返す
+        result = self.reader.ocr(image, cls=True)
 
-        if not result:
+        # resultは [results] の形式
+        # results は [[[座標], (テキスト, 信頼度)], ...] のリスト
+        if not result or not result[0]:
             return []
 
+        ocr_results = result[0]
+
         if detail == 0:
-            # テキストのみ
-            return [item[1][0] for item in result]
+            # テキストのみ (item[1][0] がテキスト)
+            return [item[1][0] for item in ocr_results]
         else:
             # バウンディングボックス付き
-            return result
+            return ocr_results
 
 
 def create_ocr_engine(
