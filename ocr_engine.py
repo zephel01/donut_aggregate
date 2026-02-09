@@ -238,7 +238,8 @@ class PaddleOCREngine(BaseOCREngine):
     ) -> List[str]:
         """PaddleOCR でテキストを読み取る"""
         # PaddleOCRのocrメソッドは [[座標], (テキスト, 信頼度)] のリストを返す
-        result = self.reader.ocr(image, cls=True)
+        # cls引数は初期化時のuse_angle_clsで設定済みのため不要
+        result = self.reader.ocr(image)
 
         # resultは [results] の形式
         # results は [[[座標], (テキスト, 信頼度)], ...] のリスト
