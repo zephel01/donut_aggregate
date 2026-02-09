@@ -145,17 +145,15 @@ def main():
     print(f"検出されたGPU: {gpu_type.value}")
     print(f"詳細: {gpu_info}")
     print(f"\n推奨設定:")
+    print("  OCRエンジン: EasyOCR")
     if gpu_type == GPUType.NVIDIA_CUDA:
-        print("  OCRエンジン: EasyOCR")
         print("  デバイス: CUDA")
     elif gpu_type == GPUType.APPLE_MPS:
-        print("  OCRエンジン: RapidOCR")
         print("  デバイス: MPS")
     elif gpu_type == GPUType.AMD_ROCM:
-        print("  OCRエンジン: PaddleOCR")
         print("  デバイス: ROCm")
     else:
-        print("  OCRエンジン: EasyOCR")
+        print("  デバイス: CPU")
         print("  並列処理: 有効")
 
 

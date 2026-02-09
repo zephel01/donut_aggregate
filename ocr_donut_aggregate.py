@@ -16,7 +16,6 @@
 GPUと並列処理オプション:
   --gpu auto|cuda|mps|rocm|cpu  GPU使用モード (デフォルト: auto)
   --workers N                     ワーカー数 (デフォルト: 自動)
-  --engine easyocr|rapidocr|paddleocr  OCRエンジン強制指定
 
 要件:
   pip install easyocr opencv-python pandas tqdm
@@ -413,9 +412,9 @@ def main():
     )
     ap.add_argument(
         "--engine",
-        choices=["easyocr", "rapidocr", "paddleocr"],
+        choices=["easyocr"],
         default=None,
-        help="OCRエンジンを強制指定"
+        help="OCRエンジンを強制指定（現在はeasyocrのみ対応）"
     )
     ap.add_argument(
         "--workers",

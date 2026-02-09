@@ -3,7 +3,7 @@
 
 """
 OCRエンジン抽象化レイヤー
-EasyOCR, RapidOCR, PaddleOCR を共通のインターフェースで扱う
+EasyOCR を使用
 """
 
 from __future__ import annotations
@@ -248,25 +248,8 @@ class PaddleOCREngine(BaseOCREngine):
         paragraph: bool = False,
         **kwargs
     ) -> List[str]:
-        """PaddleOCR でテキストを読み取る"""
-        # PaddleOCRのocrメソッドは [[座標], (テキスト, 信頼度)] のリストを返す
-        # cls引数は初期化時のuse_angle_clsで設定済みのため不要
-        result = self.reader.ocr(image)
-
-        # resultは [results] の形式
-        # results は [[[座標], (テキスト, 信頼度)], ...] のリスト
-        if not result or not result[0]:
-            return []
-
-        ocr_results = result[0]
-
-        if detail == 0:
-            # テキストのみ (item[1][0] がテキスト)
-            return [item[1][0] for item in ocr_results]
-        else:
-            # バウンディングボックス付き
-            return ocr_results
-
+        """EasyOCR でテキストを読み取る"""
+        return self.reader.readtext(image, detail=detail, paragraph=paragraph, **kwargs)
 
 def create_ocr_engine(
     gpu_type: GPUType,
@@ -275,12 +258,12 @@ def create_ocr_engine(
     use_gpu: Optional[bool] = None
 ) -> BaseOCREngine:
     """
-    GPUタイプに応じて適切なOCRエンジンを作成する
+    EasyOCRエンジンを作成する
 
     Args:
-        gpu_type: 検出されたGPUタイプ
+        gpu_type: 検出されたGPUタイプ（ROCmもEasyOCRを使用）
         languages: 使用する言語リスト (デフォルト: ['ja', 'en'])
-        force_engine: 強制使用するエンジン ('easyocr', 'rapidocr', 'paddleocr')
+        force_engine: エンジンの強制指定（現在はeasyocrのみ対応）
         use_gpu: GPUを使用するかどうか (Noneで自動判定)
 
     Returns:
@@ -293,30 +276,15 @@ def create_ocr_engine(
     if use_gpu is None:
         use_gpu = gpu_type != GPUType.CPU
 
-    # エンジンの強制指定があればそれを使用
-    if force_engine:
-        engine_classes = {
-            'easyocr': EasyOCREngine,
-            'rapidocr': RapidOCREngine,
-            'paddleocr': PaddleOCREngine,
-        }
-        if force_engine not in engine_classes:
-            raise ValueError(
-                f"不明なエンジン: {force_engine}. "
-                f"選択可能: {list(engine_classes.keys())}"
-            )
-        return engine_classes[force_engine](languages=languages, use_gpu=use_gpu)
+    # force_engineのチェック（easyocrのみ対応）
+    if force_engine and force_engine != 'easyocr':
+        raise ValueError(
+            f"不明なエンジン: {force_engine}. "
+            f"選択可能: ['easyocr']"
+        )
 
-    # GPUタイプに応じてエンジンを自動選択
-    if gpu_type == GPUType.APPLE_MPS:
-        # Apple Silicon では MPS対応の EasyOCR を推奨（高速）
-        return EasyOCREngine(languages=languages, use_gpu=True)
-    elif gpu_type == GPUType.AMD_ROCM:
-        # AMD ROCm では PaddleOCR を推奨
-        return PaddleOCREngine(languages=['japan'], use_gpu=use_gpu)
-    else:
-        # NVIDIA, CPU では EasyOCR を使用
-        return EasyOCREngine(languages=languages, use_gpu=use_gpu)
+    # EasyOCRを使用（全GPUタイプ対応）
+    return EasyOCREngine(languages=languages, use_gpu=use_gpu)
 
 
 def main():

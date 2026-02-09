@@ -29,8 +29,8 @@
 | CPU直列 | EasyOCR | 約66分 |
 | CPU並列(4コア) | EasyOCR | 約17分 |
 | **NVIDIA GPU** | EasyOCR + 並列 | **約3〜5分** |
-| **Apple Silicon** | RapidOCR + 並列 | **約3〜5分** |
-| **AMD ROCm** | PaddleOCR + 並列 | **約5〜7分** |
+| **Apple Silicon** | EasyOCR + 並列 | **約3〜5分** |
+| **AMD ROCm** | EasyOCR + 並列 | **約3〜5分** |
 
 ## セットアップ方法
 
@@ -61,14 +61,9 @@ source .venv/bin/activate  # macOS/Linux
 uv pip install -r requirements.txt
 ```
 
-**Apple Silicon (MPS):**
-```bash
-uv pip install -r requirements.txt -r requirements-apple-silicon.txt
-```
-
 **NVIDIA GPU (CUDA):**
 ```bash
-# PyTorch (CUDA) を先にインストール
+# PyTorch (CUDA 12.1) を先にインストール
 uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 uv pip install -r requirements.txt
 ```
@@ -77,6 +72,12 @@ uv pip install -r requirements.txt
 ```bash
 # 事前にROCm環境のセットアップが必要（詳細は下記「ROCm環境セットアップ」を参照）
 uv pip install -r requirements.txt -r requirements-amd-rocm.txt
+```
+
+**Apple Silicon (MPS):**
+```bash
+uv pip install -r requirements.txt
+# PyTorchはMPSをネイティブサポート
 ```
 
 ---
@@ -188,14 +189,11 @@ GPU0    MI325X        0x7449
 ### 手順4: PyTorch (ROCm版) のインストール
 
 ```bash
-# ROCm 5.7用のPyTorch（推奨）
-pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm5.7
+# ROCm 7.1用のPyTorch（nightly推奨）
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm7.1
 
 # uvを使用する場合
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm5.7
-
-# または、ROCm 6.0用のPyTorch
-pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.0
+uv pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm7.1
 ```
 
 #### PyTorch (ROCm版) の動作確認
@@ -206,7 +204,8 @@ import torch
 print(f'PyTorch version: {torch.__version__}')
 print(f'CUDA available: {torch.cuda.is_available()}')
 print(f'HIP available: {torch.version.hip is not None}')
-print(f'HIP version: {torch.version.hip}')
+if torch.version.hip is not None:
+    print(f'HIP version: {torch.version.hip}')
 if torch.cuda.is_available():
     print(f'GPU count: {torch.cuda.device_count()}')
     print(f'GPU name: {torch.cuda.get_device_name(0)}')
@@ -216,38 +215,16 @@ if torch.cuda.is_available():
 "
 ```
 
-出力例：
+出力例（ROCm 7.1の場合）：
 
 ```
-PyTorch version: 2.2.0+rocm5.7
+PyTorch version: 2.5.0a0+gitc5961e7
 CUDA available: True
 HIP available: True
-HIP version: 5.7.31104
+HIP version: 7.1.0
 GPU count: 1
 GPU name: AMD Instinct MI325X
 GPU tensor test: tensor(0.1234, device='cuda:0')
-```
-
----
-
-### 手順5: PaddlePaddle (ROCm版) のインストール
-
-```bash
-# ROCm版PaddlePaddleのインストール
-# バージョン2.6.1のROCm版をインストール
-pip install paddlepaddle-gpu==2.6.1 -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# uvを使用する場合
-uv pip install paddlepaddle-gpu==2.6.1 -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# ROCm版が正常にインストールされたか確認
-python -c "
-import paddle
-print(f'PaddlePaddle version: {paddle.__version__}')
-print(f'ROCm available: {hasattr(paddle, \"is_compiled_with_rocm\")}')
-if hasattr(paddle, 'is_compiled_with_rocm'):
-    print(f'ROCm compiled: {paddle.is_compiled_with_rocm()}')
-"
 ```
 
 ---
@@ -381,9 +358,6 @@ uv run python ocr_donut_aggregate.py --input ./data --gpu rocm
 # CPUのみを使用
 uv run python ocr_donut_aggregate.py --input ./data --gpu cpu
 
-# OCRエンジンを強制指定
-uv run python ocr_donut_aggregate.py --input ./data --engine rapidocr
-
 # ワーカー数を指定（デフォルト: 自動）
 uv run python ocr_donut_aggregate.py --input ./data --workers 4
 
@@ -396,7 +370,6 @@ uv run python ocr_donut_aggregate.py --input ./data --benchmark
 | オプション | 値 | 説明 |
 |-----------|-----|------|
 | `--gpu` | auto\|cuda\|mps\|rocm\|cpu | GPU使用モード（デフォルト: auto） |
-| `--engine` | easyocr\|rapidocr\|paddleocr | OCRエンジン強制指定 |
 | `--workers` | 数字 | ワーカー数（デフォルト: 自動） |
 | `--benchmark` | - | ベンチマークモード |
 | `--input` | パス | 画像ディレクトリ（必須） |
@@ -446,8 +419,10 @@ python gpu_detector.py
 
 ### OCRエンジンのエラー
 - **EasyOCR**: PyTorchが正しくインストールされているか確認
-- **RapidOCR**: `uv pip install rapidocr-onnxruntime` を実行
-- **PaddleOCR**: `uv pip install paddlepaddle paddleocr` を実行
+  ```bash
+  python -c "import torch; print(f'PyTorch: {torch.__version__}')"
+  python -c "import easyocr; print('EasyOCR: OK')"
+  ```
 
 ### メモリ不足
 - ワーカー数を減らす: `--workers 2`
@@ -463,7 +438,6 @@ donut_aggregate/
 ├── parallel_ocr.py              # 並列処理モジュール
 ├── test_ocr.py                 # テストスクリプト
 ├── requirements.txt            # 基本パッケージ
-├── requirements-apple-silicon.txt  # Apple Silicon用
 ├── requirements-nvidia-cuda.txt     # NVIDIA GPU用
 └── requirements-amd-rocm.txt        # AMD ROCm用
 ```
